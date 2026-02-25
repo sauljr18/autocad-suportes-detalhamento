@@ -119,8 +119,10 @@ class LoadSuportesWorker(QThread):
             self.error.emit(f"Erro ao carregar suportes: {str(e)}")
 
         finally:
-            # Limpa COM
-            pythoncom.CoUninitialize()
+            # NOTA: Não chamamos CoUninitialize() aqui porque os objetos COM
+            # criados (AutoCAD Application) serão usados por outras threads.
+            # O COM será limpo automaticamente quando a aplicação terminar.
+            pass
 
 
 class AutoConnectWorker(QThread):
@@ -179,5 +181,7 @@ class AutoConnectWorker(QThread):
             self.failed.emit(f"Erro na conexão: {str(e)}")
 
         finally:
-            # Limpa COM
-            pythoncom.CoUninitialize()
+            # NOTA: Não chamamos CoUninitialize() aqui porque os objetos COM
+            # criados (AutoCAD Application) serão usados por outras threads.
+            # O COM será limpo automaticamente quando a aplicação terminar.
+            pass

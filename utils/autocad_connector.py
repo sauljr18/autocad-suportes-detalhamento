@@ -34,6 +34,12 @@ class AutocadCOMConnector:
         self._acad_model: Optional[Any] = None
         self._is_initialized: bool = False
         self._error_handler = COMErrorHandler()
+        # Garante que COM está inicializado na thread atual
+        try:
+            pythoncom.CoInitialize()
+        except Exception:
+            # J pode estar inicializado
+            pass
 
     @property
     def is_connected(self) -> bool:
@@ -140,6 +146,40 @@ class AutocadCOMConnector:
         self._acad = None
         self._is_initialized = False
 
+    def _ensure_valid_connection(self) -> bool:
+        """
+        Garante que a conexão COM ainda é válida.
+        Tenta reconectar se necessário.
+
+        Returns:
+            True se a conexão está válida
+        """
+        if not self._acad:
+            return False
+
+        try:
+            # Tenta acessar uma propriedade simples para verificar se ainda está conectado
+            _ = self._acad.Version
+            return True
+        except (pythoncom.com_error, Exception):
+            # Objeto COM inválido, tenta reconectar
+            self._cleanup()
+
+            # Tenta reconectar sem esperar documento (já deve estar aberto)
+            try:
+                pythoncom.CoInitialize()
+                self._acad = self._try_get_active_object()
+
+                if self._acad and self._acad.Documents.Count > 0:
+                    self._acad_doc = self._acad.ActiveDocument
+                    self._acad_model = self._acad_doc.ModelSpace
+                    self._is_initialized = True
+                    return True
+            except Exception:
+                pass
+
+            return False
+
     def desconectar(self) -> None:
         """Limpa as referências do AutoCAD (não fecha o aplicativo)."""
         self._cleanup()
@@ -154,7 +194,8 @@ class AutocadCOMConnector:
         Returns:
             Lista de dicionários com dados dos blocos
         """
-        if not self.is_connected:
+        # Garante conexão válida (tentando reconectar se necessário)
+        if not self._ensure_valid_connection():
             return []
 
         blocos = []
@@ -210,7 +251,8 @@ class AutocadCOMConnector:
         Returns:
             Dicionário de propriedades
         """
-        if not self.is_connected:
+        # Garante conexão válida
+        if not self._ensure_valid_connection():
             return {}
 
         propriedades = {}
@@ -269,7 +311,8 @@ class AutocadCOMConnector:
         Returns:
             Tupla (sucesso, mensagem)
         """
-        if not self.is_connected:
+        # Garante conexão válida
+        if not self._ensure_valid_connection():
             return False, "Não conectado ao AutoCAD"
 
         try:
@@ -319,7 +362,7 @@ class AutocadCOMConnector:
         Returns:
             True se bem-sucedido
         """
-        if not self.is_connected or not self._acad:
+        if not self._ensure_valid_connection() or not self._acad:
             return False
 
         try:
@@ -349,7 +392,7 @@ class AutocadCOMConnector:
         Returns:
             Dicionário com informações do documento
         """
-        if not self.is_connected:
+        if not self._ensure_valid_connection():
             return {}
 
         try:
@@ -370,7 +413,7 @@ class AutocadCOMConnector:
         Returns:
             Tupla (sucesso, mensagem)
         """
-        if not self.is_connected or not self._acad_doc:
+        if not self._ensure_valid_connection() or not self._acad_doc:
             return False, "Não há documento ativo"
 
         try:

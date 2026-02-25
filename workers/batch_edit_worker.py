@@ -120,8 +120,8 @@ class BatchEditWorker(QThread):
             self.error.emit(f"Erro na edição em lote: {str(e)}")
 
         finally:
-            # Limpa COM
-            pythoncom.CoUninitialize()
+            # NOTA: Não chamamos CoUninitialize() para não invalidar objetos COM
+            pass
 
 
 class MultiPropertyEditWorker(QThread):
@@ -244,5 +244,5 @@ class MultiPropertyEditWorker(QThread):
             self.error.emit(f"Erro na edição: {str(e)}")
 
         finally:
-            # Limpa COM
-            pythoncom.CoUninitialize()
+            # NOTA: Não chamamos CoUninitialize() para não invalidar objetos COM
+            pass
