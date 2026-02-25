@@ -162,27 +162,35 @@ class AutocadCOMConnector:
         try:
             def collect_blocks():
                 result = []
-                for entity in self._acad_model:
-                    if entity.EntityName == 'AcDbBlockReference' and entity.HasAttributes:
-                        # Busca atributo POSICAO
-                        tag_suporte = ""
-                        for attrib in entity.GetAttributes():
-                            if attrib.TagString.upper() == tag_atributo:
-                                tag_suporte = attrib.TextString
-                                break
+                # No AutoCAD COM, precisamos usar o Count e Item para iterar
+                count = self._acad_model.Count
+                for i in range(count):
+                    try:
+                        entity = self._acad_model.Item(i)
+                        if entity.EntityName == 'AcDbBlockReference' and entity.HasAttributes:
+                            # Busca atributo POSICAO
+                            tag_suporte = ""
+                            attribs = entity.GetAttributes()
+                            for attrib in attribs:
+                                if attrib.TagString.upper() == tag_atributo:
+                                    tag_suporte = attrib.TextString
+                                    break
 
-                        if tag_suporte:
-                            insertion_point = entity.InsertionPoint
-                            result.append({
-                                'tag': tag_suporte,
-                                'tipo': entity.Name,
-                                'handle': entity.Handle,
-                                'layer': entity.Layer,
-                                'posicao_x': float(insertion_point[0]),
-                                'posicao_y': float(insertion_point[1]),
-                                'posicao_z': float(insertion_point[2]),
-                                'is_dynamic': entity.IsDynamicBlock
-                            })
+                            if tag_suporte:
+                                insertion_point = entity.InsertionPoint
+                                result.append({
+                                    'tag': tag_suporte,
+                                    'tipo': entity.Name,
+                                    'handle': entity.Handle,
+                                    'layer': entity.Layer,
+                                    'posicao_x': float(insertion_point[0]),
+                                    'posicao_y': float(insertion_point[1]),
+                                    'posicao_z': float(insertion_point[2]),
+                                    'is_dynamic': entity.IsDynamicBlock
+                                })
+                    except Exception as e:
+                        # Skip problematic entities
+                        continue
                 return result
 
             blocos = execute_with_retry(collect_blocks, "Listar blocos de suporte")
@@ -209,25 +217,32 @@ class AutocadCOMConnector:
 
         try:
             def get_props():
-                for entity in self._acad_model:
-                    if entity.EntityName == 'AcDbBlockReference' and entity.Handle == handle:
-                        if entity.IsDynamicBlock:
-                            props = {}
-                            for dyn_prop in entity.GetDynamicBlockProperties():
-                                if dyn_prop.PropertyName != "Origin":
-                                    valor = dyn_prop.Value
-                                    props[dyn_prop.PropertyName] = {
-                                        'valor': valor,
-                                        'show': dyn_prop.Show,
-                                        'readonly': not getattr(dyn_prop, 'ReadOnly', False)
-                                    }
+                # Itera usando Item method
+                count = self._acad_model.Count
+                for i in range(count):
+                    try:
+                        entity = self._acad_model.Item(i)
+                        if entity.EntityName == 'AcDbBlockReference' and entity.Handle == handle:
+                            if entity.IsDynamicBlock:
+                                props = {}
+                                dyn_props = entity.GetDynamicBlockProperties()
+                                for dyn_prop in dyn_props:
+                                    if dyn_prop.PropertyName != "Origin":
+                                        valor = dyn_prop.Value
+                                        props[dyn_prop.PropertyName] = {
+                                            'valor': valor,
+                                            'show': dyn_prop.Show,
+                                            'readonly': not getattr(dyn_prop, 'ReadOnly', False)
+                                        }
 
-                                    # Obtém limites se existirem
-                                    if hasattr(dyn_prop, 'ValueMinimum'):
-                                        props[dyn_prop.PropertyName]['min'] = dyn_prop.ValueMinimum
-                                    if hasattr(dyn_prop, 'ValueMaximum'):
-                                        props[dyn_prop.PropertyName]['max'] = dyn_prop.ValueMaximum
-                            return props
+                                        # Obtém limites se existirem
+                                        if hasattr(dyn_prop, 'ValueMinimum'):
+                                            props[dyn_prop.PropertyName]['min'] = dyn_prop.ValueMinimum
+                                        if hasattr(dyn_prop, 'ValueMaximum'):
+                                            props[dyn_prop.PropertyName]['max'] = dyn_prop.ValueMaximum
+                                return props
+                    except Exception:
+                        continue
                 return {}
 
             propriedades = execute_with_retry(get_props, f"Obter propriedades do bloco {handle}")
@@ -259,24 +274,31 @@ class AutocadCOMConnector:
 
         try:
             def update_prop():
-                for entity in self._acad_model:
-                    if entity.EntityName == 'AcDbBlockReference' and entity.Handle == handle:
-                        for prop in entity.GetDynamicBlockProperties():
-                            if prop.PropertyName == nome_propriedade:
-                                # Verifica limites se existirem
-                                if hasattr(prop, 'ValueMinimum') and hasattr(prop, 'ValueMaximum'):
-                                    try:
-                                        valor_num = float(novo_valor)
-                                        if not (prop.ValueMinimum <= valor_num <= prop.ValueMaximum):
-                                            return False, (
-                                                f"Valor {novo_valor} fora dos limites "
-                                                f"[{prop.ValueMinimum}, {prop.ValueMaximum}]"
-                                            )
-                                    except (ValueError, TypeError):
-                                        pass
+                # Itera usando Item method
+                count = self._acad_model.Count
+                for i in range(count):
+                    try:
+                        entity = self._acad_model.Item(i)
+                        if entity.EntityName == 'AcDbBlockReference' and entity.Handle == handle:
+                            dyn_props = entity.GetDynamicBlockProperties()
+                            for prop in dyn_props:
+                                if prop.PropertyName == nome_propriedade:
+                                    # Verifica limites se existirem
+                                    if hasattr(prop, 'ValueMinimum') and hasattr(prop, 'ValueMaximum'):
+                                        try:
+                                            valor_num = float(novo_valor)
+                                            if not (prop.ValueMinimum <= valor_num <= prop.ValueMaximum):
+                                                return False, (
+                                                    f"Valor {novo_valor} fora dos limites "
+                                                    f"[{prop.ValueMinimum}, {prop.ValueMaximum}]"
+                                                )
+                                        except (ValueError, TypeError):
+                                            pass
 
-                                prop.Value = novo_valor
-                                return True, "Propriedade atualizada com sucesso"
+                                    prop.Value = novo_valor
+                                    return True, "Propriedade atualizada com sucesso"
+                    except Exception:
+                        continue
                 return False, "Bloco ou propriedade não encontrada"
 
             return execute_with_retry(update_prop, f"Atualizar propriedade {nome_propriedade}")
