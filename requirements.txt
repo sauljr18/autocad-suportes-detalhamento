@@ -1,0 +1,21 @@
+# Integração Excel-DXF (Multi-plataforma)
+# Dependências Python para processamento de arquivos DXF com ezdxf
+
+# GUI Framework
+PySide6>=6.0.0
+
+# Processamento de dados
+pandas>=1.3.0
+openpyxl>=3.0.0
+
+# Biblioteca DXF (substitui pywin32/AutoCAD COM)
+ezdxf>=1.0.0
+
+# PDF Export
+matplotlib>=3.5.0
+
+# ============================================================================
+# Navegação de Suportes (Windows - AutoCAD COM)
+# ============================================================================
+# pywin32 para comunicação COM com AutoCAD (apenas Windows)
+pywin32>=305; sys_platform == 'win32'
