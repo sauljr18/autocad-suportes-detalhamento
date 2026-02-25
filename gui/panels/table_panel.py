@@ -107,7 +107,10 @@ class TablePanel(QWidget):
     def _on_clicked(self, index: QModelIndex) -> None:
         """Trata clique na tabela."""
         if index.column() == 0:  # Checkbox
-            self.model().setData(index, index.data(Qt.CheckStateRole) == Qt.Unchecked, Qt.CheckStateRole)
+            # Alterna entre Checked e Unchecked
+            current_state = index.data(Qt.CheckStateRole)
+            new_state = Qt.Unchecked if current_state == Qt.Checked else Qt.Checked
+            self.model().setData(index, new_state, Qt.CheckStateRole)
             self._atualizar_label_selecao()
 
     def _on_double_clicked(self, index: QModelIndex) -> None:
