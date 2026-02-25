@@ -73,6 +73,9 @@ class SearchPanel(QWidget):
     filtro_removido = Signal(int)
     preset_carregado = Signal(str)
     limpar_solicitado = Signal()
+    historico_navegar = Signal(int)
+    preset_salvo = Signal(str, str)
+    preset_gerenciar = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -171,9 +174,6 @@ class SearchPanel(QWidget):
         presets_layout.addWidget(self._btn_limpar)
 
         layout.addLayout(presets_layout)
-
-        # Sinal adicional para navegação no histórico
-        self.historico_navegar = Signal(int)
 
     def definir_campos(self, campos: List[Dict[str, str]]) -> None:
         """
@@ -306,10 +306,6 @@ class SearchPanel(QWidget):
     def _gerenciar_presets(self) -> None:
         """Abre diálogo de gerenciamento de presets."""
         self.preset_gerenciar.emit()
-
-    # Sinais adicionais
-    preset_salvo = Signal(str, str)
-    preset_gerenciar = Signal()
 
     @property
     def filtros_ativos(self) -> List[FiltroBusca]:
