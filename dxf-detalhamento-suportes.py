@@ -185,10 +185,19 @@ class DXFConversionWorker(QThread):
                     doc = acad.Documents.Open(dwg_path)
                     time.sleep(0.5)
 
-                    # Exporta para DXF
+                    # Exporta para DXF usando DXFOUT via SendCommand
                     dxf_path_full = os.path.abspath(dxf_path)
-                    doc.Export(dxf_path_full, "DXF", self.dxf_version)
-                    time.sleep(0.3)
+                    # Converte caminho para formato do AutoCAD (barra invertida)
+                    dxf_path_acad = dxf_path_full.replace("/", "\\")
+
+                    # Codigo da versao DXF:
+                    # 12 = R2007, 14 = R2010, 16 = R2013, 18 = R2018
+                    version_code = "16"  # R2013
+
+                    # Envia comando DXFOUT
+                    cmd = f'DXFOUT "{dxf_path_acad}" {version_code} '
+                    doc.SendCommand(cmd)
+                    time.sleep(1.0)  # Espera mais tempo para a exportacao
 
                     # Fecha sem salvar
                     doc.Close(False)
