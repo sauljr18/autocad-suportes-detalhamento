@@ -184,12 +184,13 @@ class AutocadCOMConnector:
         """Limpa as referências do AutoCAD (não fecha o aplicativo)."""
         self._cleanup()
 
-    def listar_blocos_suporte(self, tag_atributo: str = "POSICAO") -> List[Dict[str, Any]]:
+    def listar_blocos_suporte(self, tag_atributo: str = "POSICAO", prefixo_bloco: str = "SP_") -> List[Dict[str, Any]]:
         """
         Lista todos os blocos de suporte no ModelSpace.
 
         Args:
             tag_atributo: Nome do atributo que identifica a posição
+            prefixo_bloco: Prefixo do nome do bloco para filtrar (default: "SP_")
 
         Returns:
             Lista de dicionários com dados dos blocos
@@ -206,7 +207,7 @@ class AutocadCOMConnector:
                 result = []
                 # No AutoCAD COM, precisamos usar o Count e Item para iterar
                 count = self._acad_model.Count
-                print(f"[DEBUG] Iterando {count} entidades no ModelSpace...")
+                print(f"[DEBUG] Iterando {count} entidades no ModelSpace (filtro: {prefixo_bloco}*)...")
 
                 for i in range(count):
                     # Progresso a cada 100 entidades
@@ -215,27 +216,39 @@ class AutocadCOMConnector:
 
                     try:
                         entity = self._acad_model.Item(i)
-                        if entity.EntityName == 'AcDbBlockReference' and entity.HasAttributes:
-                            # Busca atributo POSICAO
-                            tag_suporte = ""
-                            attribs = entity.GetAttributes()
-                            for attrib in attribs:
-                                if attrib.TagString.upper() == tag_atributo:
-                                    tag_suporte = attrib.TextString
-                                    break
 
-                            if tag_suporte:
-                                insertion_point = entity.InsertionPoint
-                                result.append({
-                                    'tag': tag_suporte,
-                                    'tipo': entity.Name,
-                                    'handle': entity.Handle,
-                                    'layer': entity.Layer,
-                                    'posicao_x': float(insertion_point[0]),
-                                    'posicao_y': float(insertion_point[1]),
-                                    'posicao_z': float(insertion_point[2]),
-                                    'is_dynamic': entity.IsDynamicBlock
-                                })
+                        # FILTRO 1: Primeiro verifica se é BlockReference (skip rápido)
+                        if entity.EntityName != 'AcDbBlockReference':
+                            continue
+
+                        # FILTRO 2: Verifica prefixo do nome ANTES de verificar atributos
+                        if not entity.Name.startswith(prefixo_bloco):
+                            continue
+
+                        # FILTRO 3: Só então verifica atributos
+                        if not entity.HasAttributes:
+                            continue
+
+                        # Busca atributo POSICAO
+                        tag_suporte = ""
+                        attribs = entity.GetAttributes()
+                        for attrib in attribs:
+                            if attrib.TagString.upper() == tag_atributo:
+                                tag_suporte = attrib.TextString
+                                break
+
+                        if tag_suporte:
+                            insertion_point = entity.InsertionPoint
+                            result.append({
+                                'tag': tag_suporte,
+                                'tipo': entity.Name,
+                                'handle': entity.Handle,
+                                'layer': entity.Layer,
+                                'posicao_x': float(insertion_point[0]),
+                                'posicao_y': float(insertion_point[1]),
+                                'posicao_z': float(insertion_point[2]),
+                                'is_dynamic': entity.IsDynamicBlock
+                            })
                     except Exception as e:
                         # Skip problematic entities
                         continue
