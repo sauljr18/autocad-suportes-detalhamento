@@ -209,9 +209,19 @@ class AutocadCOMConnector:
                 count = self._acad_model.Count
                 print(f"[DEBUG] Iterando {count} entidades no ModelSpace (filtro: {prefixo_bloco}*)...")
 
+                # Contadores para estatísticas
+                skips = {
+                    'not_block_ref': 0,
+                    'wrong_prefix': 0,
+                    'no_attributes': 0,
+                    'no_position_attr': 0,
+                    'success': 0,
+                    'exceptions': 0
+                }
+
                 for i in range(count):
-                    # Progresso a cada 100 entidades
-                    if i % 100 == 0:
+                    # Mostra progresso mais frequente para conjuntos pequenos
+                    if i % 10 == 0 or i == count - 1:
                         print(f"[DEBUG] Processando entidade {i}/{count} ({len(result)} suportes encontrados)")
 
                     try:
@@ -219,14 +229,23 @@ class AutocadCOMConnector:
 
                         # FILTRO 1: Primeiro verifica se é BlockReference (skip rápido)
                         if entity.EntityName != 'AcDbBlockReference':
+                            skips['not_block_ref'] += 1
                             continue
 
+                        # Debug: mostra blocos encontrados com nome
+                        entity_name = entity.Name
+                        entity_handle = entity.Handle
+
                         # FILTRO 2: Verifica prefixo do nome ANTES de verificar atributos
-                        if not entity.Name.startswith(prefixo_bloco):
+                        if not entity_name.startswith(prefixo_bloco):
+                            skips['wrong_prefix'] += 1
+                            print(f"[DEBUG] SKIP (prefixo): Handle={entity_handle}, Nome='{entity_name}' não começa com '{prefixo_bloco}'")
                             continue
 
                         # FILTRO 3: Só então verifica atributos
                         if not entity.HasAttributes:
+                            skips['no_attributes'] += 1
+                            print(f"[DEBUG] SKIP (sem atributos): Handle={entity_handle}, Nome='{entity_name}' não tem atributos")
                             continue
 
                         # Busca atributo POSICAO
@@ -237,22 +256,41 @@ class AutocadCOMConnector:
                                 tag_suporte = attrib.TextString
                                 break
 
-                        if tag_suporte:
-                            insertion_point = entity.InsertionPoint
-                            result.append({
-                                'tag': tag_suporte,
-                                'tipo': entity.Name,
-                                'handle': entity.Handle,
-                                'layer': entity.Layer,
-                                'posicao_x': float(insertion_point[0]),
-                                'posicao_y': float(insertion_point[1]),
-                                'posicao_z': float(insertion_point[2]),
-                                'is_dynamic': entity.IsDynamicBlock
-                            })
+                        if not tag_suporte:
+                            skips['no_position_attr'] += 1
+                            # Lista todos os atributos disponíveis para debug
+                            attr_tags = [a.TagString for a in attribs]
+                            print(f"[DEBUG] SKIP (sem POSICAO): Handle={entity_handle}, Nome='{entity_name}', Atributos=[{', '.join(attr_tags)}]")
+                            continue
+
+                        skips['success'] += 1
+                        print(f"[DEBUG] OK: Handle={entity_handle}, Nome='{entity_name}', POSICAO='{tag_suporte}'")
+
+                        insertion_point = entity.InsertionPoint
+                        result.append({
+                            'tag': tag_suporte,
+                            'tipo': entity_name,
+                            'handle': entity_handle,
+                            'layer': entity.Layer,
+                            'posicao_x': float(insertion_point[0]),
+                            'posicao_y': float(insertion_point[1]),
+                            'posicao_z': float(insertion_point[2]),
+                            'is_dynamic': entity.IsDynamicBlock
+                        })
                     except Exception as e:
-                        # Skip problematic entities
+                        skips['exceptions'] += 1
+                        print(f"[DEBUG] EXCEÇÃO na entidade {i}: {e}")
                         continue
 
+                # Resumo estatístico
+                print(f"[DEBUG] === RESUMO ===")
+                print(f"[DEBUG] Total entidades: {count}")
+                print(f"[DEBUG] Suportes encontrados: {skips['success']}")
+                print(f"[DEBUG] Skips (não é bloco): {skips['not_block_ref']}")
+                print(f"[DEBUG] Skips (prefixo errado): {skips['wrong_prefix']}")
+                print(f"[DEBUG] Skips (sem atributos): {skips['no_attributes']}")
+                print(f"[DEBUG] Skips (sem POSICAO): {skips['no_position_attr']}")
+                print(f"[DEBUG] Exceções: {skips['exceptions']}")
                 print(f"[DEBUG] Iteração concluída: {len(result)} suportes encontrados")
                 return result
 
