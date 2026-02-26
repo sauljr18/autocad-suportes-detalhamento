@@ -180,41 +180,88 @@ class DXFConversionWorker(QThread):
                 self.current_file.emit(f"[{i+1}/{len(dwg_files)}] {dwg_filename}")
                 self.progress.emit(int((i + 1) / len(dwg_files) * 100))
 
-                try:
-                    # Converte caminho para formato do AutoCAD (barra invertida)
-                    dwg_path_acad = os.path.abspath(dwg_path).replace("/", "\\")
-                    dxf_path_acad = os.path.abspath(dxf_path).replace("/", "\\")
+                # Sistema de retry: ate 3 tentativas
+                max_retries = 3
+                success = False
+                last_error = None
 
-                    # Abre o DWG
-                    doc = acad.Documents.Open(dwg_path_acad)
-                    time.sleep(0.5)
+                for retry in range(max_retries):
+                    if self._is_cancelled:
+                        self.cancelled.emit()
+                        return
 
-                    # Exporta para DXF usando DXFOUT via SendCommand
-                    # Codigo da versao DXF: 12 = R2007, 14 = R2010, 16 = R2013, 18 = R2018
-                    version_code = "16"  # R2013
-
-                    # Envia comando DXFOUT (o arquivo DEVE existir previamente ou usar _YES)
-                    cmd = f'(command "DXFOUT" "{dxf_path_acad}" "" "{version_code}") '
-                    doc.SendCommand(cmd)
-                    time.sleep(1.5)  # Espera mais tempo para a exportacao
-
-                    # Fecha sem salvar
-                    doc.Close(False)
-                    time.sleep(0.2)
-
-                    self.log.emit(f"[{i+1}/{len(dwg_files)}] Sucesso: {dwg_filename} -> DXF")
-                    stats['success'] += 1
-
-                except Exception as e:
-                    stats['errors'] += 1
-                    stats['error_details'].append(f"{dwg_filename}: {str(e)}")
-                    self.log.emit(f"[{i+1}/{len(dwg_files)}] Erro: {dwg_filename}: {str(e)}")
-                    # Tenta fechar o documento se estiver aberto
                     try:
-                        if acad.Documents.Count > 0:
-                            acad.ActiveDocument.Close(False)
-                    except:
-                        pass
+                        # Converte caminho para formato do AutoCAD (barra invertida)
+                        dwg_path_acad = os.path.abspath(dwg_path).replace("/", "\\")
+                        dxf_path_acad = os.path.abspath(dxf_path).replace("/", "\\")
+
+                        # Salva tamanho atual do arquivo DXF (se existir)
+                        old_size = 0
+                        if os.path.exists(dxf_path):
+                            old_size = os.path.getsize(dxf_path)
+
+                        # Abre o DWG
+                        doc = acad.Documents.Open(dwg_path_acad)
+                        time.sleep(0.8)
+
+                        # Exporta para DXF usando DXFOUT via SendCommand
+                        # Codigo da versao DXF: 12 = R2007, 14 = R2010, 16 = R2013, 18 = R2018
+                        version_code = "16"  # R2013
+
+                        # Envia comando DXFOUT
+                        cmd = f'(command "DXFOUT" "{dxf_path_acad}" "" "{version_code}") '
+                        doc.SendCommand(cmd)
+
+                        # Aguarda o arquivo DXF ser criado/atualizado
+                        max_wait = 10  # segundos maximos de espera
+                        wait_count = 0
+                        file_created = False
+
+                        while wait_count < max_wait:
+                            time.sleep(0.5)
+                            wait_count += 0.5
+
+                            if os.path.exists(dxf_path):
+                                new_size = os.path.getsize(dxf_path)
+                                # Verifica se o arquivo cresceu (ou seja, foi reescrito)
+                                if new_size > old_size or new_size > 1000:  # DXF valido tem pelo menos 1KB
+                                    file_created = True
+                                    break
+
+                        # Fecha sem salvar
+                        doc.Close(False)
+                        time.sleep(0.5)  # Delay maior entre tentativas
+
+                        # Verifica se o arquivo DXF foi realmente criado
+                        if os.path.exists(dxf_path) and os.path.getsize(dxf_path) > 1000:
+                            if retry > 0:
+                                self.log.emit(f"[{i+1}/{len(dwg_files)}] Sucesso (tentativa {retry + 1}): {dwg_filename} -> DXF")
+                            else:
+                                self.log.emit(f"[{i+1}/{len(dwg_files)}] Sucesso: {dwg_filename} -> DXF")
+                            stats['success'] += 1
+                            success = True
+                            break
+                        else:
+                            raise Exception("Arquivo DXF nao foi criado ou esta vazio")
+
+                    except Exception as e:
+                        last_error = str(e)
+                        # Tenta fechar o documento se estiver aberto
+                        try:
+                            if acad.Documents.Count > 0:
+                                acad.ActiveDocument.Close(False)
+                        except:
+                            pass
+
+                        # Se nao for a ultima tentativa, aguarda antes de tentar novamente
+                        if retry < max_retries - 1:
+                            time.sleep(1.0)  # Espera 1 segundo antes de tentar de novo
+
+                # Se apos todas as tentativas ainda falhou
+                if not success:
+                    stats['errors'] += 1
+                    stats['error_details'].append(f"{dwg_filename}: {last_error}")
+                    self.log.emit(f"[{i+1}/{len(dwg_files)}] Erro (apos {max_retries} tentativas): {dwg_filename}: {last_error}")
 
             self.log.emit("\n===== CONVERSAO CONCLUIDA =====")
             self.finished.emit(stats)
