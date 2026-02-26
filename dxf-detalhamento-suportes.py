@@ -75,6 +75,126 @@ class ProcessingStats:
         }
 
 
+class DXFConversionWorker(QThread):
+    """Worker thread para conversão DWG -> DXF em lote."""
+
+    progress = Signal(int)
+    finished = Signal(dict)
+    error = Signal(str)
+    log = Signal(str)
+    current_file = Signal(str)
+    cancelled = Signal()
+
+    def __init__(self, source_folder, dxf_version="R2013"):
+        super().__init__()
+        self.source_folder = source_folder
+        self.dxf_version = dxf_version
+        self._is_cancelled = False
+
+    def cancel_processing(self):
+        """Cancela a conversao."""
+        self._is_cancelled = True
+
+    def run(self):
+        """Executa a conversao dos arquivos DWG para DXF."""
+        try:
+            import pythoncom
+            import win32com.client
+            import time
+
+            stats = {
+                'total': 0,
+                'success': 0,
+                'errors': 0,
+                'skipped': 0,
+                'error_details': []
+            }
+
+            # Inicializa COM
+            pythoncom.CoInitialize()
+            self.log.emit("Conectando ao AutoCAD...")
+
+            # Conecta ao AutoCAD
+            try:
+                acad = win32com.client.Dispatch("AutoCAD.Application")
+                acad.Visible = False
+                self.log.emit("Conexao com AutoCAD estabelecida.")
+            except Exception as e:
+                self.error.emit(f"Erro ao conectar com AutoCAD: {str(e)}")
+                self.finished.emit(stats)
+                return
+
+            # Busca arquivos DWG
+            import glob
+            dwg_files = glob.glob(os.path.join(self.source_folder, "*.dwg"))
+
+            if not dwg_files:
+                self.log.emit("Nenhum arquivo .dwg encontrado na pasta.")
+                self.finished.emit(stats)
+                return
+
+            stats['total'] = len(dwg_files)
+            self.log.emit(f"Encontrados: {len(dwg_files)} arquivos .dwg")
+
+            # Processa cada arquivo
+            for i, dwg_path in enumerate(dwg_files):
+                if self._is_cancelled:
+                    self.log.emit("Conversao cancelada pelo usuario.")
+                    self.cancelled.emit()
+                    return
+
+                dwg_filename = os.path.basename(dwg_path)
+                dxf_path = os.path.splitext(dwg_path)[0] + ".dxf"
+
+                # Verifica se DXF ja existe e eh mais recente
+                if os.path.exists(dxf_path):
+                    dwg_mtime = os.path.getmtime(dwg_path)
+                    dxf_mtime = os.path.getmtime(dxf_path)
+                    if dxf_mtime > dwg_mtime:
+                        self.log.emit(f"[{i+1}/{len(dwg_files)}] Pulado: {dwg_filename} -> DXF ja atual")
+                        stats['skipped'] += 1
+                        self.progress.emit(int((i + 1) / len(dwg_files) * 100))
+                        continue
+
+                self.current_file.emit(f"[{i+1}/{len(dwg_files)}] {dwg_filename}")
+                self.progress.emit(int((i + 1) / len(dwg_files) * 100))
+
+                try:
+                    # Abre o DWG
+                    doc = acad.Documents.Open(dwg_path)
+                    time.sleep(0.5)
+
+                    # Exporta para DXF
+                    dxf_path_full = os.path.abspath(dxf_path)
+                    doc.Export(dxf_path_full, "DXF", self.dxf_version)
+                    time.sleep(0.3)
+
+                    # Fecha sem salvar
+                    doc.Close(False)
+                    time.sleep(0.2)
+
+                    self.log.emit(f"[{i+1}/{len(dwg_files)}] Sucesso: {dwg_filename} -> DXF")
+                    stats['success'] += 1
+
+                except Exception as e:
+                    stats['errors'] += 1
+                    stats['error_details'].append(f"{dwg_filename}: {str(e)}")
+                    self.log.emit(f"[{i+1}/{len(dwg_files)}] Erro: {dwg_filename}: {str(e)}")
+                    # Tenta fechar o documento se estiver aberto
+                    try:
+                        if acad.Documents.Count > 0:
+                            acad.ActiveDocument.Close(False)
+                    except:
+                        pass
+
+            self.log.emit("\n===== CONVERSAO CONCLUIDA =====")
+            self.finished.emit(stats)
+
+        except Exception as e:
+            self.error.emit(f"Erro geral: {str(e)}")
+            self.finished.emit(stats)
+
+
 class DXFWorker(QThread):
     """Worker thread para processamento DXF com ezdxf."""
 
@@ -408,6 +528,11 @@ class MainWindow(QMainWindow):
         self.pdf_checkbox.setToolTip("Gerar arquivos PDF junto com DXF")
         self.pdf_checkbox.setChecked(False)
 
+        # Botao de conversao DWG->DXF
+        self.convert_button = QPushButton("Converter DWG->DXF (Lote)")
+        self.convert_button.clicked.connect(self.convert_dwg_to_dxf)
+        self.convert_button.setStyleSheet("background-color: #e6f3ff;")
+
         # Área de progresso com detalhes
         progress_layout = QHBoxLayout()
         self.progress_bar = QProgressBar()
@@ -425,6 +550,7 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(self.process_button)
         controls_layout.addWidget(self.cancel_button)
         controls_layout.addWidget(self.pdf_checkbox)
+        controls_layout.addWidget(self.convert_button)
         controls_layout.addLayout(progress_layout)
 
         controls_widget = QWidget()
@@ -464,6 +590,7 @@ class MainWindow(QMainWindow):
         self.excel_path = None
         self.template_folder = None
         self.worker = None
+        self.conversion_worker = None
 
     def select_excel_file(self):
         """Abre diálogo para selecionar arquivo Excel."""
@@ -493,6 +620,104 @@ class MainWindow(QMainWindow):
             self.process_button.setEnabled(True)
         else:
             self.process_button.setEnabled(False)
+
+    def convert_dwg_to_dxf(self):
+        """Inicia a conversao de DWG para DXF em lote."""
+        # Se pasta de templates ja estiver selecionada, usa ela
+        if self.template_folder:
+            folder = self.template_folder
+        else:
+            # Senao, pede para selecionar a pasta
+            folder_path = QFileDialog.getExistingDirectory(
+                self, "Selecionar Pasta com Arquivos DWG"
+            )
+            if not folder_path:
+                return
+            folder = folder_path
+
+        # Confirmacao
+        reply = QMessageBox.question(
+            self,
+            "Confirmar Conversao",
+            f"Converter todos os arquivos .dwg da pasta:\n{folder}\n\nPara formato DXF (versao 2013)?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # Limpa o log
+        self.log_text.clear()
+
+        # Desativa botoes durante conversao
+        self.excel_button.setEnabled(False)
+        self.template_button.setEnabled(False)
+        self.process_button.setEnabled(False)
+        self.convert_button.setEnabled(False)
+
+        # Adiciona cabecalho ao log
+        from datetime import datetime as dt
+        self.add_to_log(f"=== CONVERSAO DWG -> DXF ===")
+        self.add_to_log(f"Data/Hora: {dt.now().strftime('%d/%m/%Y %H:%M:%S')}")
+        self.add_to_log(f"Pasta: {folder}")
+        self.add_to_log("-" * 50)
+
+        # Cria e inicia o worker de conversao
+        self.conversion_worker = DXFConversionWorker(folder, dxf_version="R2013")
+        self.conversion_worker.progress.connect(self.update_progress)
+        self.conversion_worker.log.connect(self.add_to_log)
+        self.conversion_worker.error.connect(self.show_error)
+        self.conversion_worker.finished.connect(self.conversion_finished)
+        self.conversion_worker.cancelled.connect(self.conversion_cancelled)
+        self.conversion_worker.current_file.connect(self.update_current_file)
+        self.conversion_worker.start()
+
+    def conversion_cancelled(self):
+        """Chamado quando a conversao e cancelada."""
+        self.add_to_log("\n" + "=" * 50)
+        self.add_to_log("CONVERSAO CANCELADA PELO USUARIO")
+        self.add_to_log("=" * 50)
+        self.excel_button.setEnabled(True)
+        self.template_button.setEnabled(True)
+        self.process_button.setEnabled(True)
+        self.convert_button.setEnabled(True)
+        self.progress_label.setText("Conversao cancelada")
+
+    def conversion_finished(self, stats):
+        """Chamado ao final da conversao."""
+        self.add_to_log("\n" + "=" * 50)
+        self.add_to_log("RELATORIO FINAL DE CONVERSAO")
+        self.add_to_log("-" * 50)
+        self.add_to_log(f"Total de arquivos: {stats['total']}")
+        self.add_to_log(f"Convertidos com sucesso: {stats['success']}")
+        self.add_to_log(f"Ja atualizados (pulados): {stats.get('skipped', 0)}")
+        self.add_to_log(f"Erros: {stats['errors']}")
+
+        if stats['error_details']:
+            self.add_to_log("\nDetalhes de Erros:")
+            for detail in stats['error_details']:
+                self.add_to_log(f"  - {detail}")
+
+        self.add_to_log("\n" + "=" * 50)
+        from datetime import datetime as dt
+        self.add_to_log(f"Conversao finalizada em: {dt.now().strftime('%d/%m/%Y %H:%M:%S')}")
+
+        # Reativa os botoes
+        self.excel_button.setEnabled(True)
+        self.template_button.setEnabled(True)
+        self.process_button.setEnabled(True)
+        self.convert_button.setEnabled(True)
+        self.progress_label.setText("Conversao concluida")
+
+        # Mostra resumo
+        summary = (
+            f"Conversao concluida!\n\n"
+            f"Total: {stats['total']}\n"
+            f"Sucesso: {stats['success']}\n"
+            f"Pulados: {stats.get('skipped', 0)}\n"
+            f"Erros: {stats['errors']}"
+        )
+        QMessageBox.information(self, "Conversao Concluida", summary)
 
     def process_data(self):
         """Inicia o processamento dos dados."""
@@ -531,15 +756,25 @@ class MainWindow(QMainWindow):
 
     def cancel_processing(self):
         """Solicita o cancelamento do processamento."""
+        # Verifica se ha worker ativo
+        has_active_worker = (self.worker and self.worker.isRunning()) or \
+                            (self.conversion_worker and self.conversion_worker.isRunning())
+
+        if not has_active_worker:
+            return
+
         reply = QMessageBox.question(
             self,
             "Confirmar Cancelamento",
-            "Deseja realmente cancelar o processamento?",
+            "Deseja realmente cancelar o processamento atual?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
         if reply == QMessageBox.Yes:
-            self.worker.cancel_processing()
+            if self.worker and self.worker.isRunning():
+                self.worker.cancel_processing()
+            if self.conversion_worker and self.conversion_worker.isRunning():
+                self.conversion_worker.cancel_processing()
             self.cancel_button.setEnabled(False)
 
     def processing_cancelled(self):
