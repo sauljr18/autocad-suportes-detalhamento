@@ -25,11 +25,13 @@ class ProcessingConfig:
     REQUIRED_COLUMNS = ['POSICAO', 'TipoSuporte', 'Elevacao',
                         'MEDIDA_H', 'MEDIDA_L', 'MEDIDA_M',
                         'MEDIDA_H1', 'MEDIDA_H2', 'MEDIDA_L1',
-                        'MEDIDA_L2', 'MEDIDA_B']
+                        'MEDIDA_L2', 'MEDIDA_B',
+                        'NUM_DOC', 'QTD', 'CLIENTE']
 
     # Mapeamento de atributos do DXF
     ATTRIBUTE_TAGS = ["POSICAO", "TIPOSUPORTE", "ELEVACAO",
-                      "H", "L", "M", "H1", "H2", "L1", "L2", "B", "DATA_ATUAL"]
+                      "H", "L", "M", "H1", "H2", "L1", "L2", "B", "DATA_ATUAL",
+                      "NUM_DOC", "QTD", "CLIENTE"]
 
     # Extensões de arquivo
     TEMPLATE_EXTENSION = ".dxf"
@@ -264,6 +266,11 @@ class DXFWorker(QThread):
                     l2 = str(row['MEDIDA_L2']) if pd.notna(row['MEDIDA_L2']) else "-"
                     b = str(row['MEDIDA_B']) if pd.notna(row['MEDIDA_B']) else "-"
 
+                    # Extrai novos campos do Excel (tratando valores NaN)
+                    num_doc = str(row['NUM_DOC']) if pd.notna(row['NUM_DOC']) else ""
+                    qtd = str(row['QTD']) if pd.notna(row['QTD']) else ""
+                    cliente = str(row['CLIENTE']) if pd.notna(row['CLIENTE']) else ""
+
                     # Tratamento de duplicatas
                     if posicao not in position_counter:
                         position_counter[posicao] = 1
@@ -295,7 +302,11 @@ class DXFWorker(QThread):
                         "H1": h1, "H2": h2,
                         "L1": l1, "L2": l2,
                         "B": b,
-                        "DATA_ATUAL": datetime.now().strftime('%d/%m/%Y')
+                        "DATA_ATUAL": datetime.now().strftime('%d/%m/%Y'),
+                        # Novos atributos
+                        "NUM_DOC": num_doc,
+                        "QTD": qtd,
+                        "CLIENTE": cliente
                     }
 
                     # Processa documento (sem delays!)
