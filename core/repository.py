@@ -49,6 +49,18 @@ class SuporteRepository:
         self._cache.clear()
         self._cache_dirty = True
 
+    def obter_info_documento(self) -> Dict[str, Any]:
+        """
+        Obtém informações sobre o documento AutoCAD atual.
+
+        Returns:
+            Dicionário com informações do documento
+        """
+        print("[DEBUG] obter_info_documento: Obtendo informações do documento")
+        info = self._connector.obter_info_documento()
+        print(f"[DEBUG] obter_info_documento: {info}")
+        return info
+
     def listar_todos(self, forcar_recarga: bool = False) -> List[SuporteData]:
         """
         Lista todos os suportes do AutoCAD.
@@ -59,13 +71,19 @@ class SuporteRepository:
         Returns:
             Lista de SuporteData
         """
+        print(f"[DEBUG] listar_todos: forcar_recarga={forcar_recarga}, cache_dirty={self._cache_dirty}")
+
         if not self.is_connected:
+            print("[DEBUG] listar_todos: Não conectado")
             return []
 
         if not self._cache_dirty and not forcar_recarga:
+            print(f"[DEBUG] listar_todos: Retornando cache ({len(self._cache)} suportes)")
             return self._cache.copy()
 
+        print("[DEBUG] listar_todos: Cache inválido, recarregando do AutoCAD...")
         blocos = self._connector.listar_blocos_suporte()
+        print(f"[DEBUG] listar_todos: {len(blocos)} blocos retornados pelo conector")
 
         self._cache.clear()
         for bloco in blocos:
@@ -92,6 +110,7 @@ class SuporteRepository:
             self._cache.append(suporte)
 
         self._cache_dirty = False
+        print(f"[DEBUG] listar_todos: {len(self._cache)} suportes no cache")
         return self._cache.copy()
 
     def buscar_por_filtro(self, filtros: List[FiltroBusca]) -> List[SuporteData]:

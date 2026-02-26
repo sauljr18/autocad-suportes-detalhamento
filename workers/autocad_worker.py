@@ -61,14 +61,20 @@ class LoadSuportesWorker(QThread):
         try:
             # Inicializa COM nesta thread
             pythoncom.CoInitialize()
+            print("[DEBUG] LoadSuportesWorker: Iniciando carregamento")
 
             self.status.emit("Conectando ao AutoCAD...")
+            print("[DEBUG] Verificando conexão...")
 
             if not self._repository.is_connected:
+                print("[DEBUG] Não conectado, tentando conectar...")
                 sucesso, msg = self._repository.conectar()
+                print(f"[DEBUG] Resultado conexão: {sucesso} - {msg}")
                 if not sucesso:
                     self.error.emit(msg)
                     return
+            else:
+                print("[DEBUG] Já conectado ao AutoCAD")
 
             self.progress.emit(10)
             self.status.emit("Carregando suportes...")
@@ -78,7 +84,9 @@ class LoadSuportesWorker(QThread):
                 return
 
             # Carrega suportes básicos
+            print("[DEBUG] Chamando listar_todos()...")
             suportes = self._repository.listar_todos(forcar_recarga=self._forcar_recarga)
+            print(f"[DEBUG] listar_todos() retornou {len(suportes)} suportes")
 
             self.progress.emit(50)
 
@@ -89,9 +97,14 @@ class LoadSuportesWorker(QThread):
             # Carrega propriedades dinâmicas se solicitado
             if self._carregar_propriedades:
                 total = len(suportes)
+                print(f"[DEBUG] Carregando propriedades de {total} suportes...")
                 for i, suporte in enumerate(suportes):
                     if self._cancelado:
                         break
+
+                    # Progresso a cada 10 suportes
+                    if i % 10 == 0:
+                        print(f"[DEBUG] Progresso propriedades: {i+1}/{total}")
 
                     # Carrega propriedades do bloco
                     props = self._repository.obter_propriedades(suporte.handle)
@@ -112,10 +125,12 @@ class LoadSuportesWorker(QThread):
                 return
 
             self.progress.emit(100)
+            print(f"[DEBUG] Carregamento concluído: {len(suportes)} suportes")
             self.status.emit(f"Concluído: {len(suportes)} suportes carregados")
             self.finished.emit(suportes)
 
         except Exception as e:
+            print(f"[DEBUG] Erro no LoadSuportesWorker: {e}")
             self.error.emit(f"Erro ao carregar suportes: {str(e)}")
 
         finally:
@@ -161,6 +176,7 @@ class AutoConnectWorker(QThread):
         try:
             # Inicializa COM nesta thread
             pythoncom.CoInitialize()
+            print("[DEBUG] AutoConnectWorker: Tentando conectar...")
 
             self.status.emit("Tentando conectar ao AutoCAD...")
 
@@ -169,15 +185,19 @@ class AutoConnectWorker(QThread):
                 timeout_seg=self._timeout_seg
             )
 
+            print(f"[DEBUG] AutoConnectWorker: Resultado={sucesso}, Msg={msg}")
+
             if sucesso:
                 self.status.emit("Conectado ao AutoCAD")
                 info = self._repository.obter_info_documento() if hasattr(self._repository, 'obter_info_documento') else {}
+                print(f"[DEBUG] AutoConnectWorker: Info documento={info}")
                 self.connected.emit(info)
             else:
                 self.status.emit("Falha na conexão")
                 self.failed.emit(msg)
 
         except Exception as e:
+            print(f"[DEBUG] AutoConnectWorker: Erro na conexão: {e}")
             self.failed.emit(f"Erro na conexão: {str(e)}")
 
         finally:

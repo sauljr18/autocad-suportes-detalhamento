@@ -196,6 +196,7 @@ class AutocadCOMConnector:
         """
         # Garante conexão válida (tentando reconectar se necessário)
         if not self._ensure_valid_connection():
+            print("[DEBUG] listar_blocos_suporte: Conexão inválida")
             return []
 
         blocos = []
@@ -205,7 +206,13 @@ class AutocadCOMConnector:
                 result = []
                 # No AutoCAD COM, precisamos usar o Count e Item para iterar
                 count = self._acad_model.Count
+                print(f"[DEBUG] Iterando {count} entidades no ModelSpace...")
+
                 for i in range(count):
+                    # Progresso a cada 100 entidades
+                    if i % 100 == 0:
+                        print(f"[DEBUG] Processando entidade {i}/{count} ({len(result)} suportes encontrados)")
+
                     try:
                         entity = self._acad_model.Item(i)
                         if entity.EntityName == 'AcDbBlockReference' and entity.HasAttributes:
@@ -232,6 +239,8 @@ class AutocadCOMConnector:
                     except Exception as e:
                         # Skip problematic entities
                         continue
+
+                print(f"[DEBUG] Iteração concluída: {len(result)} suportes encontrados")
                 return result
 
             blocos = execute_with_retry(collect_blocks, "Listar blocos de suporte")
@@ -253,13 +262,14 @@ class AutocadCOMConnector:
         """
         # Garante conexão válida
         if not self._ensure_valid_connection():
+            print(f"[DEBUG] obter_propriedades_bloco({handle}): Conexão inválida")
             return {}
 
         propriedades = {}
 
         try:
             def get_props():
-                # Itera usando Item method
+                print(f"[DEBUG] Buscando propriedades para handle {handle}...")
                 count = self._acad_model.Count
                 for i in range(count):
                     try:
@@ -282,9 +292,11 @@ class AutocadCOMConnector:
                                             props[dyn_prop.PropertyName]['min'] = dyn_prop.ValueMinimum
                                         if hasattr(dyn_prop, 'ValueMaximum'):
                                             props[dyn_prop.PropertyName]['max'] = dyn_prop.ValueMaximum
+                                print(f"[DEBUG] Propriedades encontradas: {len(props)}")
                                 return props
                     except Exception:
                         continue
+                print(f"[DEBUG] Nenhuma propriedade encontrada para handle {handle}")
                 return {}
 
             propriedades = execute_with_retry(get_props, f"Obter propriedades do bloco {handle}")
