@@ -124,12 +124,33 @@ class DXFConversionWorker(QThread):
                 self.finished.emit(stats)
                 return
 
-            # Busca arquivos DWG
+            # Busca arquivos DWG (case-insensitive para pegar .dwg e .DWG)
             import glob
-            dwg_files = glob.glob(os.path.join(self.source_folder, "*.dwg"))
+            dwg_pattern = os.path.join(self.source_folder, "*.dwg")
+            dwg_files = glob.glob(dwg_pattern)
+
+            # Tenta também com maiúscula se não encontrar
+            if not dwg_files:
+                dwg_pattern_upper = os.path.join(self.source_folder, "*.DWG")
+                dwg_files = glob.glob(dwg_pattern_upper)
+
+            # Debug: mostra o que está procurando
+            self.log.emit(f"Pasta pesquisada: {self.source_folder}")
+            self.log.emit(f"Padrao de busca: {dwg_pattern}")
 
             if not dwg_files:
                 self.log.emit("Nenhum arquivo .dwg encontrado na pasta.")
+                # Lista todos os arquivos da pasta para debug
+                try:
+                    all_files = os.listdir(self.source_folder)
+                    self.log.emit(f"Arquivos na pasta: {len(all_files)} itens")
+                    # Mostra primeiros 10 arquivos
+                    for f in all_files[:10]:
+                        self.log.emit(f"  - {f}")
+                    if len(all_files) > 10:
+                        self.log.emit(f"  ... e mais {len(all_files) - 10} arquivos")
+                except Exception as e:
+                    self.log.emit(f"Erro ao listar pasta: {e}")
                 self.finished.emit(stats)
                 return
 
